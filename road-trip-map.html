@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Warsaw Road Trip Planner</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; }
+  body.dark { background: #0f172a; color: #e2e8f0; }
+  body.light { background: #f8fafc; color: #1e293b; }
+
+  #app { display: flex; height: 100vh; }
+
+  /* Sidebar */
+  #sidebar {
+    width: 420px; min-width: 420px;
+    overflow-y: auto;
+    display: flex; flex-direction: column;
+  }
+  body.dark #sidebar { background: #1e293b; border-right: 1px solid #334155; }
+  body.light #sidebar { background: #ffffff; border-right: 1px solid #e2e8f0; }
+
+  #sidebar h1 {
+    font-size: 1.3rem; padding: 20px 20px 8px;
+    letter-spacing: -0.02em;
+  }
+  body.dark #sidebar h1 { color: #f8fafc; }
+  body.light #sidebar h1 { color: #0f172a; }
+
+  #sidebar .subtitle { padding: 0 20px 16px; font-size: 0.85rem; }
+  body.dark .subtitle { color: #94a3b8; }
+  body.light .subtitle { color: #64748b; }
+
+  /* Controls row */
+  .controls-row {
+    display: flex; gap: 8px; padding: 0 20px 12px; flex-wrap: wrap;
+  }
+
+  /* Toggle buttons */
+  .toggle-group { display: flex; gap: 8px; padding: 0 20px 12px; }
+  .toggle-btn {
+    flex: 1; padding: 10px 12px; border: 2px solid transparent;
+    border-radius: 10px; cursor: pointer; font-size: 0.82rem;
+    font-weight: 600; transition: all 0.2s; text-align: center;
+  }
+  body.dark .toggle-btn { background: #0f172a; }
+  body.light .toggle-btn { background: #f1f5f9; }
+  .toggle-btn.trip1 { color: #0284c7; border-color: #bae6fd; }
+  body.dark .toggle-btn.trip1 { color: #38bdf8; border-color: #1e3a5f; }
+  .toggle-btn.trip1.active { background: #e0f2fe; border-color: #0284c7; }
+  body.dark .toggle-btn.trip1.active { background: #0c4a6e; border-color: #38bdf8; }
+  .toggle-btn.trip2 { color: #7c3aed; border-color: #ddd6fe; }
+  body.dark .toggle-btn.trip2 { color: #a78bfa; border-color: #3b1f7a; }
+  .toggle-btn.trip2.active { background: #ede9fe; border-color: #7c3aed; }
+  body.dark .toggle-btn.trip2.active { background: #4c1d95; border-color: #a78bfa; }
+  .toggle-btn:hover { filter: brightness(1.08); }
+
+  /* Small control buttons */
+  .ctrl-btn {
+    padding: 7px 12px; border-radius: 8px; border: 1.5px solid;
+    cursor: pointer; font-size: 0.75rem; font-weight: 600;
+    transition: all 0.15s; display: flex; align-items: center; gap: 5px;
+  }
+  body.dark .ctrl-btn { background: #0f172a; border-color: #334155; color: #94a3b8; }
+  body.light .ctrl-btn { background: #f1f5f9; border-color: #cbd5e1; color: #475569; }
+  .ctrl-btn:hover { filter: brightness(1.15); }
+  .ctrl-btn.active-ctrl { border-color: #f59e0b; color: #f59e0b; }
+  body.light .ctrl-btn.active-ctrl { border-color: #d97706; color: #d97706; }
+
+  /* Compare table */
+  .compare-bar {
+    display: flex; gap: 1px; margin: 0 20px 8px;
+    border-radius: 8px; overflow: hidden; font-size: 0.75rem;
+  }
+  body.dark .compare-bar { background: #334155; }
+  body.light .compare-bar { background: #e2e8f0; }
+  .compare-bar .col { flex: 1; padding: 8px 10px; }
+  body.dark .compare-bar .col { background: #1e293b; }
+  body.light .compare-bar .col { background: #ffffff; }
+  .compare-bar .col.label { font-weight: 600; min-width: 90px; flex: 0 0 90px; }
+  body.dark .compare-bar .col.label { color: #94a3b8; }
+  body.light .compare-bar .col.label { color: #64748b; }
+  .compare-bar .col.t1 { color: #0284c7; }
+  body.dark .compare-bar .col.t1 { color: #38bdf8; }
+  .compare-bar .col.t2 { color: #7c3aed; }
+  body.dark .compare-bar .col.t2 { color: #a78bfa; }
+
+  /* Day cards */
+  .day-list { flex: 1; padding: 0 20px 20px; }
+
+  .day-card {
+    border-radius: 10px; padding: 14px 16px;
+    margin-bottom: 10px; border-left: 3px solid transparent;
+    cursor: pointer; transition: all 0.15s;
+  }
+  body.dark .day-card { background: #0f172a; }
+  body.light .day-card { background: #f8fafc; }
+  body.dark .day-card:hover, body.dark .day-card.active { background: #1a2744; }
+  body.light .day-card:hover, body.light .day-card.active { background: #e0f2fe; }
+  .day-card.trip1 { border-left-color: #0284c7; }
+  body.dark .day-card.trip1 { border-left-color: #38bdf8; }
+  .day-card.trip2 { border-left-color: #7c3aed; }
+  body.dark .day-card.trip2 { border-left-color: #a78bfa; }
+
+  .day-card .day-header {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 6px;
+  }
+  .day-card .day-num { font-weight: 700; font-size: 0.9rem; }
+  body.dark .day-card.trip1 .day-num { color: #38bdf8; }
+  body.light .day-card.trip1 .day-num { color: #0284c7; }
+  body.dark .day-card.trip2 .day-num { color: #a78bfa; }
+  body.light .day-card.trip2 .day-num { color: #7c3aed; }
+
+  .day-card .day-drive {
+    font-size: 0.72rem; padding: 2px 8px; border-radius: 99px;
+  }
+  body.dark .day-card .day-drive { color: #64748b; background: #1e293b; }
+  body.light .day-card .day-drive { color: #64748b; background: #e2e8f0; }
+
+  .day-card .day-place { font-size: 0.95rem; font-weight: 600; margin-bottom: 4px; }
+  body.dark .day-card .day-place { color: #f1f5f9; }
+  body.light .day-card .day-place { color: #0f172a; }
+
+  .day-card .day-desc { font-size: 0.8rem; line-height: 1.45; }
+  body.dark .day-card .day-desc { color: #94a3b8; }
+  body.light .day-card .day-desc { color: #475569; }
+
+  .activity-tags { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+  .tag { font-size: 0.7rem; padding: 2px 8px; border-radius: 99px; font-weight: 600; }
+  .tag.cycling { background: #064e3b; color: #6ee7b7; }
+  .tag.hiking  { background: #78350f; color: #fbbf24; }
+  .tag.city    { background: #312e81; color: #a5b4fc; }
+  .tag.drive   { background: #1e293b; color: #64748b; }
+  body.light .tag.cycling { background: #d1fae5; color: #065f46; }
+  body.light .tag.hiking  { background: #fef3c7; color: #92400e; }
+  body.light .tag.city    { background: #e0e7ff; color: #3730a3; }
+  body.light .tag.drive   { background: #e2e8f0; color: #64748b; }
+
+  /* Map */
+  #map { flex: 1; }
+
+  /* Legend overlay */
+  .legend {
+    position: absolute; bottom: 24px; right: 24px; z-index: 1000;
+    backdrop-filter: blur(8px);
+    padding: 12px 16px; border-radius: 10px; font-size: 0.78rem;
+  }
+  body.dark .legend { background: rgba(30,41,59,0.92); border: 1px solid #334155; color: #e2e8f0; }
+  body.light .legend { background: rgba(255,255,255,0.92); border: 1px solid #e2e8f0; color: #1e293b; }
+  .legend div { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+  .legend div:last-child { margin-bottom: 0; }
+  .legend .dot { width: 10px; height: 10px; border-radius: 50%; }
+
+  /* Section header in day list */
+  .section-header { font-size: 0.78rem; font-weight: 700; padding: 12px 0 6px; margin-bottom: 8px; }
+  body.dark .section-header { border-bottom: 1px solid #334155; }
+  body.light .section-header { border-bottom: 1px solid #e2e8f0; }
+</style>
+</head>
+<body class="dark">
+<div id="app">
+  <div id="sidebar">
+    <h1>9-Day Road Trips from Warsaw</h1>
+    <p class="subtitle">EV road trips with cycling & hiking — compare two routes</p>
+
+    <div class="toggle-group">
+      <button class="toggle-btn trip1 active" onclick="toggleTrip(1)">
+        Trip 1 — Alps & Lakes
+      </button>
+      <button class="toggle-btn trip2 active" onclick="toggleTrip(2)">
+        Trip 2 — Moravia → Adriatic
+      </button>
+    </div>
+
+    <div class="controls-row">
+      <button class="ctrl-btn" id="themeBtn" onclick="toggleTheme()">
+        <span id="themeIcon">☀️</span> Light mode
+      </button>
+      <button class="ctrl-btn" id="satBtn" onclick="toggleSatellite()">
+        🛰️ Satellite
+      </button>
+    </div>
+
+    <!-- Quick compare -->
+    <div class="compare-bar">
+      <div class="col label">Countries</div>
+      <div class="col t1">PL CZ SI IT AT</div>
+      <div class="col t2">PL CZ AT SI IT</div>
+    </div>
+    <div class="compare-bar">
+      <div class="col label">Total km</div>
+      <div class="col t1">~2,630 km</div>
+      <div class="col t2">~2,400 km</div>
+    </div>
+    <div class="compare-bar">
+      <div class="col label">Cycling days</div>
+      <div class="col t1">3 days</div>
+      <div class="col t2">3 days</div>
+    </div>
+    <div class="compare-bar">
+      <div class="col label">Hiking days</div>
+      <div class="col t1">3 days</div>
+      <div class="col t2">2 days</div>
+    </div>
+    <div class="compare-bar">
+      <div class="col label">Rest/drive</div>
+      <div class="col t1">6 drive days</div>
+      <div class="col t2">6 drive days</div>
+    </div>
+
+    <div class="day-list" id="dayList"></div>
+  </div>
+  <div id="map"></div>
+</div>
+
+<script>
+// ── DATA ──────────────────────────────────────────────
+const trips = {
+  1: {
+    name: "Alps & Lakes Loop",
+    color: "#38bdf8", lightColor: "#0284c7",
+    days: [
+      { day: 1, place: "Warsaw → South Moravia", lat: 48.81, lng: 16.64,
+        drive: "550 km · 6-7h", tags: ["drive"],
+        desc: "South via Katowice & Ostrava to Mikulov/Lednice — Czechia's wine region with UNESCO-listed landscapes." },
+      { day: 2, place: "South Moravia → Lake Bled", lat: 46.3683, lng: 14.1146,
+        drive: "450 km · 5h", tags: ["drive"],
+        desc: "Past Vienna and Graz into the Slovenian Alps. Settle at Lake Bled or wilder Lake Bohinj." },
+      { day: 3, place: "Triglav National Park", lat: 46.39, lng: 14.08,
+        drive: "No driving", tags: ["cycling", "hiking"],
+        desc: "Cycle the Radovna Valley (flat alpine path). Hike Vintgar Gorge or Ojstrica viewpoint over Lake Bled." },
+      { day: 4, place: "Slovenia → Lake Garda", lat: 45.887, lng: 10.843,
+        drive: "280 km · 3.5h", tags: ["drive", "cycling"],
+        desc: "West through Friuli & Veneto to Riva del Garda. Evening ride along the lakefront paths." },
+      { day: 5, place: "Lake Garda", lat: 45.87, lng: 10.83,
+        drive: "No driving", tags: ["cycling", "hiking"],
+        desc: "Ride the Strada del Ponale (cliffside bike path). Hike Monte Baldo via cable car from Malcesine." },
+      { day: 6, place: "Lake Garda → Carinthia", lat: 46.613, lng: 13.849,
+        drive: "350 km · 4.5h", tags: ["drive"],
+        desc: "North through Brenner Pass to Villach / Lake Wörthersee — Austria's sunny southern lakes." },
+      { day: 7, place: "Austrian Lake District", lat: 46.62, lng: 14.09,
+        drive: "No driving", tags: ["cycling", "hiking"],
+        desc: "Ride the Drau Cycle Path along the river. Hike to Pyramidenkogel tower for 360° Alpine views." },
+      { day: 8, place: "Carinthia → Olomouc", lat: 49.594, lng: 17.251,
+        drive: "520 km · 6h", tags: ["drive", "city"],
+        desc: "North past Vienna to Olomouc — a 'mini Prague' with a beautiful square and great Czech food." },
+      { day: 9, place: "Olomouc → Warsaw", lat: 52.23, lng: 21.01,
+        drive: "480 km · 5.5h", tags: ["drive"],
+        desc: "Highway back through Ostrava and central Poland. Home by late afternoon." }
+    ]
+  },
+  2: {
+    name: "Moravia → Adriatic",
+    color: "#a78bfa", lightColor: "#7c3aed",
+    days: [
+      { day: 1, place: "Warsaw → Brno", lat: 49.1951, lng: 16.6068,
+        drive: "560 km · 5h", tags: ["drive", "city"],
+        desc: "Motorway south via Ostrava. Evening stroll through Brno's old town, sunset from Špilberk Castle." },
+      { day: 2, place: "Moravian Karst cycling", lat: 49.37, lng: 16.72,
+        drive: "25 min to trailhead", tags: ["cycling"],
+        desc: "Paved trail through Punkva valley limestone gorges. Optional Punkva Caves boat ride underground." },
+      { day: 3, place: "Brno → Vienna → Graz", lat: 47.0707, lng: 15.4395,
+        drive: "310 km · 3h", tags: ["drive", "city"],
+        desc: "Stop in Vienna for Ringstrasse walk & coffee, then south to Graz — Schlossberg hill & Altstadt." },
+      { day: 4, place: "Graz — Mur cycle path", lat: 46.95, lng: 15.43,
+        drive: "No driving", tags: ["cycling"],
+        desc: "Murradweg south toward Leibnitz through vineyards & rolling hills. Gentle terrain, peak green season." },
+      { day: 5, place: "Graz → Lake Bled", lat: 46.3683, lng: 14.1146,
+        drive: "220 km · 2.5h", tags: ["drive", "hiking"],
+        desc: "Through Karawanken tunnel to Lake Bled. Hike Ojstrica viewpoint for the classic panorama." },
+      { day: 6, place: "Bled — cycling + Vintgar Gorge", lat: 46.39, lng: 14.08,
+        drive: "No driving", tags: ["cycling", "hiking"],
+        desc: "Cycle to Bohinj valley, then walk Vintgar Gorge — 1.6 km canyon boardwalk along the Radovna." },
+      { day: 7, place: "Bled → Ljubljana → Trieste", lat: 45.6496, lng: 13.7769,
+        drive: "~2.5h", tags: ["drive", "city"],
+        desc: "Stop in Ljubljana for castle walk & riverside lunch. Continue to Trieste on the Adriatic coast." },
+      { day: 8, place: "Venice / Parenzana trail", lat: 45.4408, lng: 12.3155,
+        drive: "1.5h to Venice", tags: ["cycling", "city"],
+        desc: "Morning in Venice (vaporetto from Tronchetto) or cycle the Parenzana trail with sea views." },
+      { day: 9, place: "Return north → Warsaw", lat: 52.23, lng: 21.01,
+        drive: "~10h or split", tags: ["drive"],
+        desc: "Long drive back via Vienna/Bratislava. Option to split with a final night in Bratislava." }
+    ]
+  }
+};
+
+// ── STATE ─────────────────────────────────────────────
+let isDark = true;
+let isSatellite = false;
+const visible = { 1: true, 2: true };
+
+// ── TILE LAYERS ───────────────────────────────────────
+const tiles = {
+  dark: L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    attribution: '&copy; OSM & CARTO', maxZoom: 19
+  }),
+  light: L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+    attribution: '&copy; OSM & CARTO', maxZoom: 19
+  }),
+  satellite: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+    attribution: '&copy; Esri, Maxar, Earthstar', maxZoom: 19
+  })
+};
+
+// ── MAP SETUP ─────────────────────────────────────────
+const map = L.map('map', { zoomControl: false }).setView([48.5, 15], 6);
+L.control.zoom({ position: 'topright' }).addTo(map);
+tiles.dark.addTo(map);
+
+// Legend
+const legend = L.control({ position: 'bottomright' });
+legend.onAdd = function() {
+  const div = L.DomUtil.create('div', 'legend');
+  div.innerHTML = `
+    <div><span class="dot" style="background:#38bdf8"></span> Trip 1 — Alps & Lakes</div>
+    <div><span class="dot" style="background:#a78bfa"></span> Trip 2 — Moravia → Adriatic</div>
+    <div><span class="dot" style="background:#6ee7b7"></span> Cycling day</div>
+    <div><span class="dot" style="background:#fbbf24"></span> Hiking day</div>
+  `;
+  return div;
+};
+legend.addTo(map);
+
+// ── MAP LAYERS ────────────────────────────────────────
+const layers = { 1: { line: null, markers: [] }, 2: { line: null, markers: [] } };
+
+function getColor(tripId) {
+  const t = trips[tripId];
+  return (isDark || isSatellite) ? t.color : t.lightColor;
+}
+
+function buildLayers(tripId) {
+  const trip = trips[tripId];
+  const coords = trip.days.map(d => [d.lat, d.lng]);
+  const col = getColor(tripId);
+
+  layers[tripId].line = L.polyline(coords, {
+    color: col, weight: 3.5, opacity: 0.8,
+    dashArray: tripId === 2 ? '8 6' : null
+  }).addTo(map);
+
+  trip.days.forEach((d, i) => {
+    const hasCycling = d.tags.includes('cycling');
+    const hasHiking = d.tags.includes('hiking');
+    let ring = col;
+    if (hasCycling && hasHiking) ring = '#059669';
+    else if (hasCycling) ring = '#059669';
+    else if (hasHiking) ring = '#d97706';
+
+    const bgAlpha = (isDark || isSatellite) ? '22' : '18';
+    const icon = L.divIcon({
+      className: '',
+      html: `<div style="
+        width:28px;height:28px;border-radius:50%;
+        background:${col}${bgAlpha};border:2.5px solid ${ring};
+        display:flex;align-items:center;justify-content:center;
+        font-size:12px;font-weight:700;color:${col};
+        font-family:system-ui;
+        ${(isDark || isSatellite) ? '' : 'text-shadow:0 0 3px #fff;'}
+      ">${d.day}</div>`,
+      iconSize: [28, 28], iconAnchor: [14, 14]
+    });
+
+    const popupTextColor = isDark ? '#ccc' : '#333';
+    const marker = L.marker([d.lat, d.lng], { icon })
+      .bindPopup(`
+        <div style="font-family:system-ui;min-width:200px;">
+          <strong style="color:${col}">Day ${d.day}</strong>
+          <span style="color:#888;font-size:0.8em;margin-left:6px">${trip.name}</span>
+          <div style="font-size:1.05em;font-weight:600;margin:4px 0">${d.place}</div>
+          <div style="font-size:0.85em;color:#777;margin-bottom:4px">${d.drive}</div>
+          <div style="font-size:0.85em;line-height:1.4">${d.desc}</div>
+        </div>
+      `)
+      .addTo(map);
+
+    layers[tripId].markers.push(marker);
+  });
+}
+
+function clearLayers(tripId) {
+  if (layers[tripId].line) map.removeLayer(layers[tripId].line);
+  layers[tripId].markers.forEach(m => map.removeLayer(m));
+  layers[tripId].line = null;
+  layers[tripId].markers = [];
+}
+
+function rebuildAll() {
+  [1, 2].forEach(id => {
+    clearLayers(id);
+    if (visible[id]) buildLayers(id);
+  });
+}
+
+buildLayers(1);
+buildLayers(2);
+
+// ── TILE SWITCHING ────────────────────────────────────
+function setTileLayer() {
+  Object.values(tiles).forEach(t => { if (map.hasLayer(t)) map.removeLayer(t); });
+  if (isSatellite) {
+    tiles.satellite.addTo(map);
+  } else if (isDark) {
+    tiles.dark.addTo(map);
+  } else {
+    tiles.light.addTo(map);
+  }
+}
+
+function toggleTheme() {
+  isDark = !isDark;
+  document.body.className = isDark ? 'dark' : 'light';
+  const btn = document.getElementById('themeBtn');
+  const icon = document.getElementById('themeIcon');
+  if (isDark) {
+    icon.textContent = '☀️';
+    btn.lastChild.textContent = ' Light mode';
+  } else {
+    icon.textContent = '🌙';
+    btn.lastChild.textContent = ' Dark mode';
+  }
+  if (!isSatellite) setTileLayer();
+  rebuildAll();
+}
+
+function toggleSatellite() {
+  isSatellite = !isSatellite;
+  const btn = document.getElementById('satBtn');
+  btn.classList.toggle('active-ctrl', isSatellite);
+  setTileLayer();
+  rebuildAll();
+}
+
+// ── SIDEBAR CARDS ─────────────────────────────────────
+function renderCards() {
+  const list = document.getElementById('dayList');
+  list.innerHTML = '';
+
+  [1, 2].forEach(tripId => {
+    if (!visible[tripId]) return;
+    const trip = trips[tripId];
+    const col = getColor(tripId);
+
+    const header = document.createElement('div');
+    header.className = 'section-header';
+    header.style.color = col;
+    header.textContent = trip.name;
+    list.appendChild(header);
+
+    trip.days.forEach((d, i) => {
+      const card = document.createElement('div');
+      card.className = `day-card trip${tripId}`;
+      const tagsHtml = d.tags.map(t => `<span class="tag ${t}">${t}</span>`).join('');
+
+      card.innerHTML = `
+        <div class="day-header">
+          <span class="day-num">Day ${d.day}</span>
+          <span class="day-drive">${d.drive}</span>
+        </div>
+        <div class="day-place">${d.place}</div>
+        <div class="day-desc">${d.desc}</div>
+        <div class="activity-tags">${tagsHtml}</div>
+      `;
+
+      card.addEventListener('click', () => {
+        document.querySelectorAll('.day-card').forEach(c => c.classList.remove('active'));
+        card.classList.add('active');
+        map.flyTo([d.lat, d.lng], 10, { duration: 0.8 });
+        layers[tripId].markers[i].openPopup();
+      });
+
+      list.appendChild(card);
+    });
+  });
+}
+
+renderCards();
+
+// ── TOGGLE TRIPS ──────────────────────────────────────
+function toggleTrip(tripId) {
+  visible[tripId] = !visible[tripId];
+  document.querySelector(`.toggle-btn.trip${tripId}`).classList.toggle('active');
+
+  if (visible[tripId]) {
+    buildLayers(tripId);
+  } else {
+    clearLayers(tripId);
+  }
+
+  renderCards();
+  fitBounds();
+}
+
+function fitBounds() {
+  const allCoords = [];
+  [1, 2].forEach(id => {
+    if (visible[id]) trips[id].days.forEach(d => allCoords.push([d.lat, d.lng]));
+  });
+  if (allCoords.length) map.fitBounds(allCoords, { padding: [40, 40] });
+}
+</script>
+</body>
+</html>
