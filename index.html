@@ -159,6 +159,29 @@
   .section-header { font-size: 0.78rem; font-weight: 700; padding: 12px 0 6px; margin-bottom: 8px; }
   body.dark .section-header { border-bottom: 1px solid #334155; }
   body.light .section-header { border-bottom: 1px solid #e2e8f0; }
+
+  /* Weather badge */
+  .weather-badge {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 0.72rem; font-weight: 600;
+    padding: 3px 9px; border-radius: 99px;
+    white-space: nowrap; margin-left: auto;
+  }
+  body.dark .weather-badge { background: #1e293b; color: #94a3b8; }
+  body.light .weather-badge { background: #e2e8f0; color: #475569; }
+  .weather-badge .wx-icon { font-size: 0.9rem; line-height: 1; }
+  .weather-badge .wx-temp { font-weight: 700; }
+  body.dark .weather-badge .wx-temp { color: #e2e8f0; }
+  body.light .weather-badge .wx-temp { color: #1e293b; }
+  .weather-badge .wx-range { font-weight: 500; opacity: 0.6; font-size: 0.9em; }
+  .weather-badge.loading { opacity: 0.4; }
+
+  /* Date label next to day number */
+  .day-date {
+    font-weight: 500; font-size: 0.78rem; margin-left: 6px;
+  }
+  body.dark .day-date { color: #64748b; }
+  body.light .day-date { color: #94a3b8; }
 </style>
 </head>
 <body class="dark">
@@ -287,6 +310,131 @@ const trips = {
     ]
   }
 };
+
+// ── WEATHER ───────────────────────────────────────────
+// WMO weather code → { icon, label }
+const WMO = {
+  0: { icon: '☀️', label: 'Clear' },
+  1: { icon: '🌤️', label: 'Mostly clear' },
+  2: { icon: '⛅', label: 'Partly cloudy' },
+  3: { icon: '☁️', label: 'Overcast' },
+  45: { icon: '🌫️', label: 'Fog' },
+  48: { icon: '🌫️', label: 'Rime fog' },
+  51: { icon: '🌦️', label: 'Light drizzle' },
+  53: { icon: '🌦️', label: 'Drizzle' },
+  55: { icon: '🌧️', label: 'Heavy drizzle' },
+  56: { icon: '🌧️', label: 'Freezing drizzle' },
+  57: { icon: '🌧️', label: 'Freezing drizzle' },
+  61: { icon: '🌧️', label: 'Light rain' },
+  63: { icon: '🌧️', label: 'Rain' },
+  65: { icon: '🌧️', label: 'Heavy rain' },
+  66: { icon: '🌧️', label: 'Freezing rain' },
+  67: { icon: '🌧️', label: 'Freezing rain' },
+  71: { icon: '🌨️', label: 'Light snow' },
+  73: { icon: '🌨️', label: 'Snow' },
+  75: { icon: '❄️', label: 'Heavy snow' },
+  77: { icon: '🌨️', label: 'Snow grains' },
+  80: { icon: '🌦️', label: 'Rain showers' },
+  81: { icon: '🌧️', label: 'Rain showers' },
+  82: { icon: '⛈️', label: 'Heavy showers' },
+  85: { icon: '🌨️', label: 'Snow showers' },
+  86: { icon: '❄️', label: 'Heavy snow showers' },
+  95: { icon: '⛈️', label: 'Thunderstorm' },
+  96: { icon: '⛈️', label: 'T-storm + hail' },
+  99: { icon: '⛈️', label: 'T-storm + hail' },
+};
+
+function getWMO(code) {
+  return WMO[code] || { icon: '🌡️', label: '' };
+}
+
+// Trip start date: April 18 2026
+const TRIP_START = '2026-04-18';
+
+// Build a date string for a given day offset (0-indexed: day 1 → offset 0)
+function tripDate(dayNum) {
+  const d = new Date(TRIP_START + 'T00:00:00');
+  d.setDate(d.getDate() + (dayNum - 1));
+  return d.toISOString().slice(0, 10); // "YYYY-MM-DD"
+}
+
+function tripDateLabel(dayNum) {
+  const d = new Date(TRIP_START + 'T00:00:00');
+  d.setDate(d.getDate() + (dayNum - 1));
+  return d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+}
+
+// Weather cache: key "tripId-dayIndex" → { high, low, code }
+const weatherCache = {};
+
+async function fetchAllWeather() {
+  // We need the daily forecast for each unique (lat,lng,date) combo.
+  // Build a deduplicated map: "lat,lng" → Set of dates we need
+  const locDates = new Map(); // "lat,lng" → { lat, lng, minDate, maxDate }
+  const requests = []; // { tripId, dayIdx, lat, lng, date }
+
+  [1, 2].forEach(id => {
+    trips[id].days.forEach((d, idx) => {
+      const date = tripDate(d.day);
+      const key = `${d.lat},${d.lng}`;
+      requests.push({ tripId: id, dayIdx: idx, lat: d.lat, lng: d.lng, date });
+      if (!locDates.has(key)) {
+        locDates.set(key, { lat: d.lat, lng: d.lng, minDate: date, maxDate: date });
+      } else {
+        const e = locDates.get(key);
+        if (date < e.minDate) e.minDate = date;
+        if (date > e.maxDate) e.maxDate = date;
+      }
+    });
+  });
+
+  // Fetch daily forecasts — one request per unique location covering its date range
+  // Open-Meteo supports comma-separated multi-location requests
+  const entries = [...locDates.entries()]; // [key, {lat,lng,minDate,maxDate}]
+
+  // All trips cover Apr 18–26, so we can do one batch with the full range
+  const lats = entries.map(e => e[1].lat).join(',');
+  const lngs = entries.map(e => e[1].lng).join(',');
+
+  try {
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lats}&longitude=${lngs}&daily=temperature_2m_max,temperature_2m_min,weather_code&start_date=${TRIP_START}&end_date=${tripDate(9)}&timezone=auto`;
+    const res = await fetch(url);
+    const data = await res.json();
+
+    const results = Array.isArray(data) ? data : [data];
+
+    // Build a lookup: "lat,lng" → { dates[], highs[], lows[], codes[] }
+    const lookup = {};
+    entries.forEach(([key], i) => {
+      const r = results[i];
+      if (r && r.daily) {
+        lookup[key] = {
+          dates: r.daily.time,
+          highs: r.daily.temperature_2m_max,
+          lows: r.daily.temperature_2m_min,
+          codes: r.daily.weather_code
+        };
+      }
+    });
+
+    // Map back to per-card cache entries
+    requests.forEach(req => {
+      const loc = lookup[`${req.lat},${req.lng}`];
+      if (!loc) return;
+      const dateIdx = loc.dates.indexOf(req.date);
+      if (dateIdx === -1) return;
+      weatherCache[`${req.tripId}-${req.dayIdx}`] = {
+        high: Math.round(loc.highs[dateIdx]),
+        low: Math.round(loc.lows[dateIdx]),
+        code: loc.codes[dateIdx]
+      };
+    });
+  } catch (err) {
+    console.warn('Weather fetch failed:', err);
+  }
+
+  renderCards();
+}
 
 // ── STATE ─────────────────────────────────────────────
 let isDark = true;
@@ -456,9 +604,22 @@ function renderCards() {
       card.className = `day-card trip${tripId}`;
       const tagsHtml = d.tags.map(t => `<span class="tag ${t}">${t}</span>`).join('');
 
+      // Weather badge — forecast for the actual trip date
+      const wKey = `${tripId}-${i}`;
+      const w = weatherCache[wKey];
+      const dateLabel = tripDateLabel(d.day);
+      let weatherHtml;
+      if (w) {
+        const wmo = getWMO(w.code);
+        weatherHtml = `<span class="weather-badge"><span class="wx-icon">${wmo.icon}</span> <span class="wx-temp">${w.high}°</span><span class="wx-range">/${w.low}°</span> ${wmo.label}</span>`;
+      } else {
+        weatherHtml = `<span class="weather-badge loading">loading…</span>`;
+      }
+
       card.innerHTML = `
         <div class="day-header">
-          <span class="day-num">Day ${d.day}</span>
+          <span class="day-num">Day ${d.day} <span class="day-date">${dateLabel}</span></span>
+          ${weatherHtml}
           <span class="day-drive">${d.drive}</span>
         </div>
         <div class="day-place">${d.place}</div>
@@ -502,6 +663,9 @@ function fitBounds() {
   });
   if (allCoords.length) map.fitBounds(allCoords, { padding: [40, 40] });
 }
+
+// ── FETCH WEATHER ON LOAD ─────────────────────────────
+fetchAllWeather();
 </script>
 </body>
 </html>
